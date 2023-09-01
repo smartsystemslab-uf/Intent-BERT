@@ -1,3 +1,6 @@
 [submodule "InHARD"]
 	path = InHARD
 	url = https://github.com/vhavard/InHARD
+[submodule "PyMO"]
+	path = PyMO
+	url = https://github.com/omimo/PyMO/
