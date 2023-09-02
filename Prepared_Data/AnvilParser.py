@@ -4,7 +4,7 @@ import os
 class AnvilParser():
     def __init__(self,  file_path: Union[str, os.PathLike]):
         self.file_path = file_path
-        self.open_file = open(self.file_path, 'r')
+        self.open_file = open(self.file_path, 'r', encoding='UTF-16')
         self.read_head()
         self.start_time = 0
         self.current_action = 'No Action'
@@ -26,17 +26,17 @@ class AnvilParser():
             temp = line[line.find(key):]
         else:
             temp = line
-        temp = temp[temp.find('='):]
-        temp = temp[:temp.find(' ')]
+        temp = temp[temp.find('=')+1:]
+        temp = temp[:temp.find(' ')-1]
         return temp
 
     def next_action(self):
         while '<el' not in self.current_line:
             self.current_line = self.open_file.readline()
         self.start_time = self.get_value(self.current_line, 'start')
-        self.stop_time = self.get_value(self.current_line, 'stop')
+        self.stop_time = self.get_value(self.current_line, 'end')
         self.current_line = self.open_file.readline()
-        self.current_action = self.current_line[self.current_line.find('>'):self.current_line.find('<')]
+        self.current_action = self.current_line[self.current_line.find(']')+2:self.current_line.find('/')-1]
         self.current_line = self.open_file.readline()
 
     def __next__(self):
@@ -50,6 +50,11 @@ class AnvilParser():
         self.open_file.close()
 
 if __name__ == "__main__":
-
+    test_file = '../InHARD/Online/Labels/P01_R01.anvil'
+    tester = AnvilParser(test_file)
+    print(tester.spec)
+    print(tester.next())
+    print(tester.next())
+    print(tester.next())
 
 
