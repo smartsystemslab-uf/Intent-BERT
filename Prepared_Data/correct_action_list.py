@@ -48,4 +48,13 @@ out_dict_as_str = json.dumps(out_dict)
 out_file.write(out_dict_as_str)
 out_file.close()
 
+out_file = open('Prepared_Data/meta_lookup.json', 'w+')
+lookup_dict = {}
+for action_index in out_dict:
+    i, meta, action = out_dict[action_index][0]
+    lookup_dict[action.lower()] = meta.lower()
+
+json.dump(lookup_dict, out_file)
+out_file.close()
+
 

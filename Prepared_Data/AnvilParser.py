@@ -33,6 +33,9 @@ class AnvilParser():
     def next_action(self):
         while '<el' not in self.current_line:
             self.current_line = self.open_file.readline()
+            print(self.current_line)
+            if not self.current_line:
+                raise IndexError
         self.start_time = self.get_value(self.current_line, 'start')
         self.stop_time = self.get_value(self.current_line, 'end')
         self.current_line = self.open_file.readline()

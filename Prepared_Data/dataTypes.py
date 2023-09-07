@@ -2,9 +2,13 @@ import PyMO
 import numpy as np
 import os
 import spacy
+from typing import Union
+import json
 
 nlp = spacy.load("en_core_web_sm")
 
+meta_file = open('meta_lookup.json', 'r')
+META_CONVERTER = json.load(meta_file)
 
 class ObjectList:
     def __init__(self, objects: np.ndarray, buffer_size: int = 5):
@@ -24,11 +28,22 @@ class ObjectList:
 
 
 class Task:
-    def __init__(self, task_str: str):
+    def __init__(self, task_str: str, start_time: Union[float, np.float32, np.float16, np.float64] = 0.0,
+                 stop_time: Union[float, np.float32, np.float16, np.float64] = 0.0):
+        self.start_time = start_time
+        self.stop_time = stop_time
+        if '(' in task_str:
+            task_str = task_str[:task_str.find('(')-1]
         self.task_str = task_str.lower()
+        try:
+            self.meta_task = META_CONVERTER[self.task_str]
+        except KeyError:
+            self.meta_task = self.task_str.split()[0]
         self.task_embedded = self.get_vector(self.task_str)
+        self.meta_embedded = self.get_vector(self.meta_task)
         self.__dict__['string'] = self.task_str
         self.__dict__['embed'] = self.task_embedded
+        self.__dict__['meta'] = self.meta_embedded
 
     def get_vector(self, string: str):
         tokenizer = nlp(string)
