@@ -1,2 +1,6 @@
 Prepared_Data/training/*
 Prepared_Data/testing/*
+*.pyc
+*.h5
+*.7z
+*.pt

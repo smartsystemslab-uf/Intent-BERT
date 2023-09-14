@@ -4,8 +4,13 @@ import os
 import spacy
 from typing import Union
 import json
+import keras_nlp
+from dataset_params import *
+import tensorflow as tf
 
-nlp = spacy.load("en_core_web_sm")
+tokenizer = keras_nlp.models.BertTokenizer.from_preset(BERT_MODEL)
+preprocessor = keras_nlp.models.BertPreprocessor(tokenizer=tokenizer, sequence_length=SEQ_LEN)
+embedding = keras_nlp.models.BertBackbone.from_preset(BERT_MODEL)
 
 meta_file = open('meta_lookup.json', 'r')
 META_CONVERTER = json.load(meta_file)
@@ -28,26 +33,35 @@ class ObjectList:
 
 
 class Task:
-    def __init__(self, task_str: str, start_time: Union[float, np.float32, np.float16, np.float64] = 0.0,
+    def __init__(self, task_str: str, meta_task: str, start_time: Union[float, np.float32, np.float16, np.float64] = 0.0,
                  stop_time: Union[float, np.float32, np.float16, np.float64] = 0.0):
         self.start_time = start_time
         self.stop_time = stop_time
-        if '(' in task_str:
-            task_str = task_str[:task_str.find('(')-1]
-        self.task_str = task_str.lower()
-        try:
-            self.meta_task = META_CONVERTER[self.task_str]
-        except KeyError:
-            self.meta_task = self.task_str.split()[0]
-        self.task_embedded = self.get_vector(self.task_str)
-        self.meta_embedded = self.get_vector(self.meta_task)
-        self.__dict__['string'] = self.task_str
-        self.__dict__['embed'] = self.task_embedded
-        self.__dict__['meta'] = self.meta_embedded
+        self.task_str = task_str
+        self.meta_task = meta_task
 
-    def get_vector(self, string: str):
-        tokenizer = nlp(string)
-        return tokenizer.vector
+        self.task_token = self.to_tokens(task_str.lower())
+        self.task_embed = self.to_array(self.task_token)
+        self.task_token = self.task_token['token_ids'][0].numpy()
+        print(self.task_token.shape)
+
+        self.meta_token = self.to_tokens(meta_task.lower())
+        self.meta_embed = self.to_array(self.meta_token)
+        self.meta_token = self.meta_token['token_ids'][0].numpy()
+
+        self.__dict__['string'] = self.task_str
+        self.__dict__['embed'] = self.task_embed
+        self.__dict__['meta_task'] = self.meta_task
+        self.__dict__['meta_embed'] = self.meta_embed
+
+    def to_array(self, token):
+        temp = embedding(token)
+        return np.asarray(temp['sequence_output'])
+
+    def to_tokens(self, string: str):
+        temp = tf.expand_dims(tf.constant(string), 0)
+        temp = preprocessor(temp)
+        return temp
 
     def __str__(self):
         return self.task_str

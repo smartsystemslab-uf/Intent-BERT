@@ -7,8 +7,11 @@
       <excludeFolder url="file://$MODULE_DIR$/InHARD/arch" />
       <excludeFolder url="file://$MODULE_DIR$/InHARD/Online" />
       <excludeFolder url="file://$MODULE_DIR$/InHARD/Segmented" />
+      <excludeFolder url="file://$MODULE_DIR$/Prepared_Data/testing" />
+      <excludeFolder url="file://$MODULE_DIR$/Prepared_Data/training" />
+      <excludeFolder url="file://$MODULE_DIR$/models" />
     </content>
-    <orderEntry type="inheritedJdk" />
+    <orderEntry type="jdk" jdkName="Python 3.8 (ICRA2024) (2)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

@@ -4,3 +4,6 @@
 [submodule "PyMO"]
 	path = PyMO
 	url = https://github.com/omimo/PyMO/
+[submodule "ultralytics"]
+	path = ultralytics
+	url = https://github.com/ultralytics/ultralytics

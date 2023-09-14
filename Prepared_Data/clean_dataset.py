@@ -1,4 +1,5 @@
 import json
+import sys
 
 import numpy as np
 import ffmpeg
@@ -9,29 +10,25 @@ import os
 import cv2
 from AnvilParser import AnvilParser
 from dataTypes import Task, Context
+import tensorflow as tf
+from ultralytics import YOLO
+import keras_nlp
 
-BODY_PART_LIST = ['Hips', 'LeftFoot', 'LeftHand', 'LeftLeg', 'LeftUpLeg', 'LeftForeArm', 'LeftArm', 'LeftShoulder',
-                  'RightFoot', 'RightHand', 'RightLeg', 'RightUpLeg', 'RightForeArm', 'RightArm', 'RightShoulder',
-                  'Spine', 'Head']
-POSE_COMPONENTS = ['Xposition', 'Yposition', 'Zposition', 'Xrotation', 'Yrotation', 'Zrotation']
+from dataset_params import *
 
-FIELD_NAMES = []
-for part in BODY_PART_LIST:
+pose_model = YOLO(POSE_MODEL)
+
+for part in BODY_PART_LIST_3D:
     for comp in POSE_COMPONENTS:
         temp = '_'.join([part, comp])
         FIELD_NAMES.append(temp)
 
 def label_to_Task(label_out):
-    action_label = label_out[2]
-    try:
-        start_time = float(label_out[0][1:-1])
-    except ValueError:
-        start_time = float(label_out[0][1:])
-    try:
-        stop_time = float(label_out[1][1:-1])
-    except ValueError:
-        stop_time = float(label_out[1][1:])
-    return Task(action_label, start_time, stop_time)
+    action_label = label_out[0]
+    meta_action_label = label_out[1]
+    start_time = label_out[2]
+    stop_time = label_out[3]
+    return Task(action_label, meta_action_label, start_time, stop_time)
 
 def prepare_data(args):
     in_data_path = args.in_data_path
@@ -42,12 +39,9 @@ def prepare_data(args):
     except FileExistsError:
         pass
     if data_type == 'training': #
-        mask = 'P01_R01, P01_R03, P03_R01, P03_R03, P03_R04, P04_R02, P05_R03, P05_R04, P06_R01, P07_R01, P07_R02, ' \
-               'P08_R02, P08_R04, P09_R01, P09_R03, P10_R01, P10_R02, P10_R03, P11_R02, P12_R01, P12_R02, P13_R02,' \
-               ' P14_R01, P15_R01, P15_R02, P16_R02'
+        mask = train_set
     else:
-        mask = 'P01_R02, P02_R01, P02_R02, P04_R01, P05_R01, P05_R02, P08_R01, P08_R03, P09_R02, P11_R01, P14_R02,' \
-               ' P16_R01'
+        mask = test_set
     mask = mask.split(', ')
     vid_root_path = os.path.join(in_data_path, 'RGB')
     pose_root_path = os.path.join(in_data_path, 'Skeleton')
@@ -72,7 +66,7 @@ def prepare_data(args):
 
         anvil_path = os.path.join(label_root_path, session+'.anvil')
         session_labels = AnvilParser(anvil_path)
-        current_task = Task('No Action')
+        current_task = Task('No Action', 'No Action')
         next_task = label_to_Task(session_labels.next())
 
 
@@ -80,29 +74,82 @@ def prepare_data(args):
         session_vid = cv2.VideoCapture(session_vid)
         frame_rate = session_vid.get(cv2.CAP_PROP_FPS)
         seconds_per_frame = 1/frame_rate
+        height = int(session_vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        width = int(session_vid.get(cv2.CAP_PROP_FRAME_WIDTH))
+        feat_model = tf.keras.applications.ResNet50(include_top=False,
+                                                    input_shape=(height,
+                                                                 width,
+                                                                 3),
+                                                    )
 
         current_frame = 0
         current_time = 0
         last_time = 0
-        last_task_switch = 0
+        last_pose_3d = np.array([])
 
         ret = True
         while ret:
             # print(current_frame)
+            current_frame += 1
+            current_time += seconds_per_frame
+            if current_time < current_task.start_time:
+                continue
+
             ret, img = session_vid.read()
             try:
-                # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                cv2.imshow('test', img)
-            except:
+                # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB
+                pose_2D_pred = pose_model.predict(img, conf=0.7)[0]
+                feats = feat_model.predict(tf.keras.applications.resnet.preprocess_input(img[np.newaxis, ::-1]))
+                print(feats.shape)
+                cv2.imshow(session, pose_2D_pred.plot())
+
+
+            except cv2.error as e:
+                print(e)
                 cv2.destroyAllWindows()
-                ret = False
                 break
             if cv2.waitKey(1) == ord('q'):
                 cv2.destroyAllWindows()
-                ret = False
                 break
-            current_frame += 1
-            current_time += seconds_per_frame
+
+            # if we are past the end of the last task
+            print(current_task.stop_time, current_time)
+            if current_time > current_task.stop_time:
+                print(current_task.stop_time, current_time, 'moving to next task')
+                # get the next task
+                current_task = next_task
+                try:
+                    next_task = label_to_Task(session_labels.next())
+                except IndexError:
+                    cv2.destroyAllWindows()
+                    break
+                if next_task.start_time < current_task.stop_time:
+                    next_task.start_time = current_task.stop_time
+
+            try:
+                pose_2D_pred = pose_2D_pred.cpu().numpy().keypoints
+                # invalid_detections = np.nonzero(pose_2D_pred.conf < threshold)
+                # print(pose_2D_pred.conf.shape, pose_2D_pred.xyn.shape)
+                confs = pose_2D_pred.conf[:, :, np.newaxis]
+            except TypeError:
+                continue
+            norm_preds = pose_2D_pred.xyn
+            new_inds = np.ones_like(confs)
+            new_inds = new_inds.cumsum(axis=1)
+            # print(new_inds.shape, confs.shape, norm_preds.shape)
+            pose_2D_pred = np.concatenate([new_inds, confs, norm_preds], axis=-1)
+            # print(pose_2D_pred)
+
+            if current_time > next_task.start_time or current_time > current_task.stop_time:
+                print('invalid timing, exiting')
+                print(current_time > next_task.start_time)
+                print(current_time > current_task.stop_time)
+                print(current_time, next_task.start_time, next_task.stop_time, current_task.start_time, current_task.stop_time, current_frame, session)
+                sys.exit()
+
+
+            # print(pose_readings)
+            # print(actual_task.task_str, current_time, next_task.task_str)
 
             poses_for_frame = last_time <= pose_times
             poses_for_frame = poses_for_frame & (pose_times < current_time)
@@ -112,48 +159,46 @@ def prepare_data(args):
             # print(pose_readings)
             pose_readings = np.asarray(pose_readings)
             # print(pose_readings)
-            pose_readings = pose_readings.tolist()
+            # pose_readings = pose_readings
             # print(pose_readings)
-
-            # if we are past the end of the last task
-            if current_time > current_task.stop_time:
-                # get the next task
-                current_task = next_task
-                try:
-                    next_task = label_to_Task(session_labels.next())
-                except IndexError:
-                    cv2.destroyAllWindows()
-                    break
-                last_task_switch = current_time
-
-
-            if current_time < current_task.start_time:
-                actual_task = Task('Consult Sheets', start_time=last_task_switch, stop_time=current_task.start_time)
-
-            else:
-                actual_task = current_task
-
-
-            # print(pose_readings)
-            # print(actual_task.task_str, current_time, next_task.task_str)
 
             out_file_name = os.path.join(out_root, str(current_frame)+'.json')
             if np.all(np.isfinite(pose_readings)):
                 with open(out_file_name, 'w') as f_temp:
+                    if not last_pose_3d.size:
+                        last_pose_3d = pose_readings
+
+                    pose_vel_3D = pose_readings - last_pose_3d
+
+                    inds = np.ones_like(pose_readings)
+                    inds = inds.cumsum(axis=0)
+                    pose_readings = np.concatenate([inds, pose_readings])
+                    pose_readings = np.reshape(pose_readings, (-1, 2), order='F')
+
                     dict_to_write = {}
-                    dict_to_write['poses'] = pose_readings
-                    dict_to_write['current_task_str'] = actual_task.task_str
-                    dict_to_write['current_task_embed'] = actual_task.task_embedded.tolist()
-                    dict_to_write['current_task_meta'] = actual_task.meta_embedded.tolist()
-                    dict_to_write['time_to_end'] = actual_task.stop_time - current_time
+                    dict_to_write['3D_poses'] = pose_readings.tolist()
+                    dict_to_write['3D_pose_vels'] = pose_vel_3D.tolist()
+                    dict_to_write['2D_poses'] = pose_2D_pred.tolist()
+                    dict_to_write['current_task_str'] = current_task.task_str
+                    dict_to_write['current_task_embed'] = current_task.task_embed.tolist()
+                    dict_to_write['current_task_token'] = current_task.task_token.tolist()
+                    dict_to_write['current_task_meta_embed'] = current_task.meta_embed.tolist()
+                    dict_to_write['current_task_meta_str'] = current_task.meta_task
+                    dict_to_write['current_meta_token'] = current_task.meta_token.tolist()
+                    dict_to_write['time_to_end'] = current_task.stop_time - current_time
                     dict_to_write['time_to_next'] = next_task.start_time - current_time
                     dict_to_write['next_task_str'] = next_task.task_str
-                    dict_to_write['next_task_embed'] = next_task.task_embedded.tolist()
-                    dict_to_write['next_task_meta'] = next_task.meta_embedded.tolist()
+                    dict_to_write['next_task_embed'] = next_task.task_embed.tolist()
+                    dict_to_write['next_task_token'] = next_task.task_token.tolist()
+                    dict_to_write['next_task_meta_embed'] = next_task.meta_embed.tolist()
+                    dict_to_write['next_task_meta_str'] = next_task.meta_task
+                    dict_to_write['next_meta_token'] = next_task.meta_token.tolist()
+                    np.savez_compressed(os.path.join(out_root, str(current_frame)), feats=feats[0])
                     json.dump(dict_to_write, f_temp)
                     f_temp.close()
 
             last_time = current_time
+            last_pose_3d = pose_readings[:, 1]
 
         cv2.destroyAllWindows()
 
