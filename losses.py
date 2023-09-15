@@ -18,35 +18,48 @@ perplexity = keras_nlp.metrics.Perplexity(from_logits=True, mask_token_id=0)
 edit_distance = keras_nlp.metrics.EditDistance()
 sampler = keras_nlp.samplers.TopPSampler(p=0.5)
 
-def top_k_recovery(y_true, y_pred, k=5):
-    y_preds_sorted = tf.argsort(y_pred, axis=-1)[:, :, -k:]
-    not_in_trues = tf.where(y_true != 0, x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
-    not_in_preds = tf.where(
-        tf.reduce_any(y_preds_sorted != 0), x=tf.constant(True, dtype=tf.bool),
-        y=tf.constant(False, dtype=tf.bool))
-    mask = tf.math.logical_or(not_in_trues, not_in_preds)
-    selected_trues = y_true[mask]
+def top_k_recovery(k_value=5):
+    def top_y_base(y_true, y_pred, k=k_value):
+        y_preds_sorted = tf.argsort(y_pred, axis=-1)[:, :, -k:]
+        not_in_trues = tf.where(y_true != 0.0, x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+        not_in_trues = tf.where(tf.math.logical_and(y_true != 101.0, not_in_trues), x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+        not_in_trues = tf.where(tf.math.logical_and(y_true != 102.0, not_in_trues), x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+        not_in_preds = tf.where(
+            tf.reduce_any(y_preds_sorted != 0), x=tf.constant(True, dtype=tf.bool),
+            y=tf.constant(False, dtype=tf.bool))
+        mask = tf.math.logical_or(not_in_trues, not_in_preds)
+        selected_trues = y_true[mask]
 
-    selected_preds = y_preds_sorted[mask]
-    # print(selected_preds.dtype)
+        selected_preds = y_preds_sorted[mask]
+        # print(selected_preds.dtype)
 
-    selected_trues = tf.cast(selected_trues[:, tf.newaxis], dtype=tf.int32)
-    # print(selected_trues.dtype)
+        selected_trues = tf.cast(selected_trues[:, tf.newaxis], dtype=tf.int32)
+        # print(selected_trues.dtype)
 
-    recovered = tf.where(
-        tf.reduce_any(selected_trues == selected_preds, axis=-1),
-        1.0, 0.0)
-    recovered = tf.reduce_mean(recovered)
-    return recovered
+        recovered = tf.where(
+            tf.reduce_any(selected_trues == selected_preds, axis=-1),
+            1.0, 0.0)
+        recovered = tf.reduce_mean(recovered)
+        return recovered
+    return top_y_base
 
 def true_recovery(y_true, y_pred):
-    y_pred = tf.argmax(y_pred, axis=-1)
-    not_in_trues = tf.where(y_true != 0, x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
-    not_in_preds = tf.where(y_pred != 0, x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+    y_pred = tf.cast(tf.argmax(y_pred, axis=-1), dtype=tf.float32)
+    not_in_trues = tf.where(y_true != 0.0, x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+    not_in_trues = tf.where(tf.math.logical_and(y_true != 101.0, not_in_trues), x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+    not_in_trues = tf.where(tf.math.logical_and(y_true != 102.0, not_in_trues), x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+    not_in_preds = tf.where(y_pred != 0.0, x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
     mask = tf.math.logical_or(not_in_trues, not_in_preds)
     recovered = accuracy_base(y_true[mask], y_pred[mask])
     recovered = tf.reduce_mean(recovered)
     return recovered
+
+def perfect_recovery(y_true, y_pred):
+    y_pred = tf.cast(tf.argmax(y_pred, axis=-1), dtype=tf.float32)
+    recovered = tf.where(tf.reduce_all(y_true == y_pred, axis=-1), 1.0, 0.0)
+    recovered = tf.reduce_mean(recovered)
+    return recovered
+
 
 def LGL(y_true, y_pred, epsilon=0.001):
     pred_corrector = tf.abs(tf.clip_by_value(y_pred, -5, 5))

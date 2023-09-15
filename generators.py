@@ -130,7 +130,8 @@ class PreparedDataGenerator(keras.utils.Sequence):
 
 class TextAsStringGenerator(keras.utils.Sequence):
     'Generates data for Keras'
-    def __init__(self, root_path, batch_size=1, shuffle=True, seq_len=SEQ_LEN, embed_dim=128, ignore_sessions=[]):
+    def __init__(self, root_path, batch_size=1, shuffle=True, seq_len=SEQ_LEN, embed_dim=128, ignore_sessions=[],
+                 include_no_action=True):
         'Initialization'
         self.data_list = []
         for session in tqdm(os.listdir(root_path)):
@@ -139,7 +140,15 @@ class TextAsStringGenerator(keras.utils.Sequence):
             for frame in os.listdir(os.path.join(root_path, session)):
                 # don't double count frames
                 if 'json' in frame:
-                    full_path = os.path.join(root_path, session, frame)
+                    if not include_no_action:
+                        with open(os.path.join(root_path, session, frame), 'r') as temp:
+                            temp = json.load(temp)['current_task_meta_str']
+                        if temp != 'No action':
+                            full_path = os.path.join(root_path, session, frame)
+                        else:
+                            continue
+                    else:
+                        full_path = os.path.join(root_path, session, frame)
                     self.data_list.append(full_path)
 
         self.count = len(self.data_list)

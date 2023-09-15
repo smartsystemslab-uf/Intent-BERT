@@ -185,8 +185,8 @@ def build_sentence_model(vocab_size, seq_len, pose_3_size=17, pose_2_size=17, re
                          task_embed_input,
                          meta_embed_input,
                          image_feature_input),
-                        (next_task, next_meta_latent_out,
-                         next_meta, next_task_latent_out, finish_time, next_start),
+                        (next_task, next_task_latent_out,
+                         next_meta, next_meta_latent_out, finish_time, next_start),
                         name='objectless')
     return model
 
