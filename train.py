@@ -3,10 +3,11 @@ from generators import get_full_train_val_gens
 from Prepared_Data.dataset_params import EMBED_DETPH
 # import tensorflow as tf
 # import os
+from typing import Union
 from tensorflow import keras
 import argparse
 from losses import LGL, embed_loss
-from losses import sparse_loss, perplexity_metric, bleu_metric, edit_metric
+from losses import sparse_loss, perplexity_metric, true_recovery, top_k_recovery, cosine_loss_base
 # import keras_nlp
 # from generators import tokenizer
 
@@ -35,7 +36,7 @@ from losses import sparse_loss, perplexity_metric, bleu_metric, edit_metric
 #         print(f"Top-K search generated text: \n{txt}\n")
 
 
-def main(args, train_gen, val_gen, vocab_size, metrics=[]):
+def main(args, train_gen, val_gen, vocab_size, metrics:Union[list, dict, iter] = ()):
     # model = build_objectless_model()
     model = build_sentence_model(seq_len=args.seq_len, vocab_size=vocab_size, reduced_embed_dim=args.embed_dim)
     model.summary()
@@ -71,8 +72,10 @@ if __name__ == "__main__":
 
 
 
-    metrics = {'next_meta_pred': ['SparseCategoricalAccuracy', perplexity_metric],
-               'next_task_pred': ['SparseCategoricalAccuracy', perplexity_metric],
+    metrics = {'next_meta_pred': ['SparseCategoricalAccuracy', perplexity_metric, true_recovery, top_k_recovery],
+               'next_meta_embed': ['MSE', LGL, 'CosineSimilarity'],
+               'next_task_pred': ['SparseCategoricalAccuracy', perplexity_metric, true_recovery, top_k_recovery],
+               'next_task_embed': ['MSE', LGL, 'CosineSimilarity'],
                'time_to_end_task': ['MAE', 'MAPE'], 'time_to_next_task': ['MAE', 'MAPE']}
 
     trained_model = main(args, train_gen, val_gen, vocab_size, metrics)

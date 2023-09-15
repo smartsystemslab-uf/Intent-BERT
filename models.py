@@ -3,11 +3,12 @@ from tensorflow import keras
 import numpy as np
 from tensorflow.keras import layers
 from keras_nlp.layers import TransformerDecoder, TransformerEncoder, PositionEmbedding
+from keras_nlp.samplers import GreedySampler
 from Prepared_Data.dataset_params import EMBED_DETPH
 
-def encoder(key, query, value, key_dim, dropout, reduced_embed_dim):
+def encoder(key, query, value, key_dim, dropout, reduced_embed_dim, skip_recurrent=False):
     # print(key.shape, query.shape, value.shape)
-    x1 = layers.MultiHeadAttention(num_heads=4, key_dim=key_dim)(query=query, key=key, value=value)
+    x1 = layers.MultiHeadAttention(num_heads=4, key_dim=key_dim)(query=query, key=key, value=value, use_causal_mask=False)
     x1 = x1 + query
     x1 = layers.LayerNormalization()(x1)
     if dropout > 0:
@@ -17,16 +18,17 @@ def encoder(key, query, value, key_dim, dropout, reduced_embed_dim):
     if dropout > 0:
         x2 = layers.Dropout(dropout)(x2)
     # print(x2.shape, x1.shape)
-    x = x2 + x1
-    return x
+    if not skip_recurrent:
+        x2 = x2 + x1
+    return x2
 
 def decoder(key, query, value, key_dim, dropout, reduced_embed_dim):
-    x1 = layers.MultiHeadAttention(num_heads=4, key_dim=key_dim)(query=query, key=query, value=query)
+    x1 = layers.MultiHeadAttention(num_heads=4, key_dim=key_dim)(query=query, key=query, value=query, use_causal_mask=False)
     x1 = x1 + query
     x1 = layers.LayerNormalization()(x1)
     if dropout > 0:
         x1 = layers.Dropout(dropout)(x1)
-    x2 = layers.MultiHeadAttention(num_heads=4, key_dim=key_dim)(query=query, key=key, value=value)
+    x2 = layers.MultiHeadAttention(num_heads=4, key_dim=key_dim)(query=query, key=key, value=value, use_causal_mask=True)
     x2 = x1 + x2
     x2 = layers.LayerNormalization()(x2)
     if dropout > 0:
@@ -61,36 +63,63 @@ def build_sentence_model(vocab_size, seq_len, pose_3_size=17, pose_2_size=17, re
 
     image_feature_input = layers.Input((23, 40, 2048), name='image_feature_input', dtype=tf.float32)
 
-    image_feature_embed = layers.Dense(reduced_embed_dim)(image_feature_input)
+    image_feature_embed = layers.Conv2D(reduced_embed_dim, (1, 1))(image_feature_input)
     image_feature_embed = layers.Reshape((-1, reduced_embed_dim))(image_feature_embed)
     image_feature_spatial = PositionEmbedding(sequence_length=23*40)(image_feature_embed)
 
 
 
-    pose_3_encoded_task = encoder(key=pose_3_name, query=task_embed, value=pose_3_input, key_dim=reduced_embed_dim,
-                                  reduced_embed_dim=reduced_embed_dim, dropout=0.05)
-    pose_3_encoded_meta = encoder(key=pose_3_name, query=meta_embed, value=pose_3_input, key_dim=reduced_embed_dim,
-                                  reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+    pose_3_encoded_task = encoder(key=pose_3_input, query=pose_3_input, value=pose_3_input, key_dim=reduced_embed_dim,
+                                  reduced_embed_dim=reduced_embed_dim, dropout=0.05, skip_recurrent=True)
     # print(pose_3_encoded_task.shape)
-
-    vel_3_encoded_task = encoder(key=pose_3_name, query=task_embed, value=vel_3_input, key_dim=reduced_embed_dim,
-                                 reduced_embed_dim=reduced_embed_dim, dropout=0.05)
-    vel_3_encoded_meta = encoder(key=pose_3_name, query=meta_embed, value=vel_3_input, key_dim=reduced_embed_dim,
-                                 reduced_embed_dim=reduced_embed_dim, dropout=0.05)
-
-    pose_2_encoded_task = encoder(key=pose_2_name, query=task_embed, value=pose_2_input, key_dim=reduced_embed_dim,
+    pose_3_encoded_task = encoder(key=pose_3_name, query=task_embed, value=pose_3_encoded_task, key_dim=reduced_embed_dim,
                                   reduced_embed_dim=reduced_embed_dim, dropout=0.05)
-    pose_2_encoded_meta = encoder(key=pose_2_name, query=meta_embed, value=pose_2_input, key_dim=reduced_embed_dim,
+
+    pose_3_encoded_meta = encoder(key=pose_3_input, query=pose_3_input, value=pose_3_input, key_dim=reduced_embed_dim,
+                                  reduced_embed_dim=reduced_embed_dim, dropout=0.05, skip_recurrent=True)
+    pose_3_encoded_meta = encoder(key=pose_3_name, query=meta_embed, value=pose_3_encoded_meta, key_dim=reduced_embed_dim,
+                                  reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+
+    vel_3_encoded_task = encoder(key=vel_3_input, query=vel_3_input, value=vel_3_input, key_dim=reduced_embed_dim,
+                                 reduced_embed_dim=reduced_embed_dim, dropout=0.05, skip_recurrent=True)
+    vel_3_encoded_task = encoder(key=pose_3_name, query=task_embed, value=vel_3_encoded_task, key_dim=reduced_embed_dim,
+                                 reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+
+    vel_3_encoded_meta = encoder(key=vel_3_input, query=vel_3_input, value=vel_3_input, key_dim=reduced_embed_dim,
+                                 reduced_embed_dim=reduced_embed_dim, dropout=0.05, skip_recurrent=True)
+    vel_3_encoded_meta = encoder(key=pose_3_name, query=meta_embed, value=vel_3_encoded_meta, key_dim=reduced_embed_dim,
+                                 reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+
+    pose_2_encoded_task = encoder(key=pose_2_input, query=pose_2_input, value=pose_2_input, key_dim=reduced_embed_dim,
+                                  reduced_embed_dim=reduced_embed_dim, dropout=0.05, skip_recurrent=True)
+    pose_2_encoded_task = encoder(key=pose_2_name, query=task_embed, value=pose_2_encoded_task, key_dim=reduced_embed_dim,
+                                  reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+
+    pose_2_encoded_meta = encoder(key=pose_2_input, query=pose_2_input, value=pose_2_input, key_dim=reduced_embed_dim,
+                                  reduced_embed_dim=reduced_embed_dim, dropout=0.05, skip_recurrent=True)
+    pose_2_encoded_meta = encoder(key=pose_2_name, query=meta_embed, value=pose_2_encoded_meta, key_dim=reduced_embed_dim,
                                   reduced_embed_dim=reduced_embed_dim, dropout=0.05)
 
     task_encoded = encoder(key=task_embed, query=task_embed, value=task_embed, key_dim=reduced_embed_dim,
                            reduced_embed_dim=reduced_embed_dim, dropout=0.05)
-    meta_encoded = encoder(key=meta_embed, query=meta_embed, value=meta_embed, key_dim=reduced_embed_dim,
+    task_encoded = encoder(key=task_encoded, query=task_embed, value=task_encoded, key_dim=reduced_embed_dim,
                            reduced_embed_dim=reduced_embed_dim, dropout=0.05)
 
-    image_feature_encoded_task = encoder(key=image_feature_spatial, value=image_feature_embed, query=task_embed,
+    meta_encoded = encoder(key=meta_embed, query=meta_embed, value=meta_embed, key_dim=reduced_embed_dim,
+                           reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+    meta_encoded = encoder(key=meta_encoded, query=meta_embed, value=meta_encoded, key_dim=reduced_embed_dim,
+                           reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+
+    image_feature_encoded_task = encoder(key=image_feature_embed, value=image_feature_embed, query=image_feature_embed,
+                                         key_dim=reduced_embed_dim, reduced_embed_dim=reduced_embed_dim, dropout=0.05,
+                                         skip_recurrent=True)
+    image_feature_encoded_task = encoder(key=image_feature_spatial, value=image_feature_encoded_task, query=task_embed,
                                          key_dim=reduced_embed_dim, reduced_embed_dim=reduced_embed_dim, dropout=0.05)
-    image_feature_encoded_meta = encoder(key=image_feature_spatial, value=image_feature_embed,
+
+    image_feature_encoded_meta = encoder(key=image_feature_embed, value=image_feature_embed,
+                                         query=image_feature_embed, key_dim=reduced_embed_dim, skip_recurrent=True,
+                                         reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+    image_feature_encoded_meta = encoder(key=image_feature_spatial, value=image_feature_encoded_meta,
                                          query=meta_embed, key_dim=reduced_embed_dim,
                                          reduced_embed_dim=reduced_embed_dim, dropout=0.05)
 
@@ -102,26 +131,35 @@ def build_sentence_model(vocab_size, seq_len, pose_3_size=17, pose_2_size=17, re
     total_combined = combined_task + combined_meta
     total_combined = layers.LayerNormalization()(total_combined)
 
+    latent_out = decoder(key=total_combined, query=total_combined, value=total_combined, key_dim=reduced_embed_dim,
+                               reduced_embed_dim=reduced_embed_dim, dropout=0.05)
 
-    next_meta_latent = decoder(key=total_combined, query=total_combined, value=meta_embed, key_dim=reduced_embed_dim,
+    next_meta_latent = decoder(key=latent_out, query=combined_meta, value=latent_out, key_dim=reduced_embed_dim,
+                               reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+    next_meta_latent = decoder(key=next_meta_latent, query=combined_meta, value=next_meta_latent, key_dim=reduced_embed_dim,
                                reduced_embed_dim=reduced_embed_dim, dropout=0.05)
     next_meta_latent_out = layers.Dense(EMBED_DETPH, name='next_meta_embed')(next_meta_latent)
 
-    next_task_latent = decoder(key=total_combined, query=next_meta_latent, value=task_embed, key_dim=reduced_embed_dim,
+    next_task_latent = decoder(key=latent_out, query=next_meta_latent, value=latent_out, key_dim=reduced_embed_dim,
+                               reduced_embed_dim=reduced_embed_dim, dropout=0.05)
+    next_task_latent = decoder(key=next_task_latent, query=combined_task, value=next_task_latent, key_dim=reduced_embed_dim,
                                reduced_embed_dim=reduced_embed_dim, dropout=0.05)
     next_task_latent_out = layers.Dense(EMBED_DETPH, name='next_task_embed')(next_task_latent)
 
 
     # next_meta = layers.Dense(embed_depth, kernel_regularizer='l1', activation='tanh')(next_meta_latent)
-    # next_meta = layers.Dropout(0.1)(next_meta_latent)
-    next_meta = layers.Dense(vocab_size, name='next_meta_pred')(next_task_latent_out)
+    next_meta = layers.Dropout(0.1)(next_meta_latent)
+    next_meta = layers.Dense(vocab_size, name='next_meta_pred')(next_meta)
+    # next_meta = layers.GRU(vocab_size, name='next_meta_pred', return_sequences=True)(next_meta)
 
 
     # next_task = layers.Dense(embed_depth, kernel_regularizer='l1', activation='tanh')(next_task_latent)
-    # next_task = layers.Dropout(0.1)(next_task)
-    next_task = layers.Dense(vocab_size, name='next_task_pred')(next_meta_latent_out)
+    next_task = layers.Dropout(0.1)(next_task_latent)
+    next_task = layers.Dense(vocab_size, name='next_task_pred')(next_task)
+    # next_task = layers.GRU(vocab_size, name='next_task_pred', return_sequences=True)(next_task)
+    # next_task = layers.MultiHeadAttention(1, key_dim=EMBED_DETPH)(key=next_task, query=next_task, value=next_task)
 
-    combined = layers.Concatenate()([next_task_latent_out, next_meta_latent_out])
+    combined = layers.Concatenate()([next_task_latent, next_meta_latent])
     combined = layers.Flatten()(combined)
 
     finish_time = layers.Dropout(0.1)(combined)

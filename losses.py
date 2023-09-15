@@ -11,13 +11,42 @@ from Prepared_Data.dataset_params import NLP_MODEL
 mse_loss_base = tf.keras.losses.MeanSquaredError(reduction='auto')
 cosine_loss_base = tf.keras.losses.CosineSimilarity(reduction='none')
 sparse_loss_base = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
+accuracy_base = tf.keras.metrics.CategoricalAccuracy()
 
 bleu = keras_nlp.metrics.Bleu(tokenizer=tokenizer, max_order=3, smooth=True)
 perplexity = keras_nlp.metrics.Perplexity(from_logits=True, mask_token_id=0)
 edit_distance = keras_nlp.metrics.EditDistance()
 sampler = keras_nlp.samplers.TopPSampler(p=0.5)
 
+def top_k_recovery(y_true, y_pred, k=5):
+    y_preds_sorted = tf.argsort(y_pred, axis=-1)[:, :, -k:]
+    not_in_trues = tf.where(y_true != 0, x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+    not_in_preds = tf.where(
+        tf.reduce_any(y_preds_sorted != 0), x=tf.constant(True, dtype=tf.bool),
+        y=tf.constant(False, dtype=tf.bool))
+    mask = tf.math.logical_or(not_in_trues, not_in_preds)
+    selected_trues = y_true[mask]
 
+    selected_preds = y_preds_sorted[mask]
+    # print(selected_preds.dtype)
+
+    selected_trues = tf.cast(selected_trues[:, tf.newaxis], dtype=tf.int32)
+    # print(selected_trues.dtype)
+
+    recovered = tf.where(
+        tf.reduce_any(selected_trues == selected_preds, axis=-1),
+        1.0, 0.0)
+    recovered = tf.reduce_mean(recovered)
+    return recovered
+
+def true_recovery(y_true, y_pred):
+    y_pred = tf.argmax(y_pred, axis=-1)
+    not_in_trues = tf.where(y_true != 0, x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+    not_in_preds = tf.where(y_pred != 0, x=tf.constant(True, dtype=tf.bool), y=tf.constant(False, dtype=tf.bool))
+    mask = tf.math.logical_or(not_in_trues, not_in_preds)
+    recovered = accuracy_base(y_true[mask], y_pred[mask])
+    recovered = tf.reduce_mean(recovered)
+    return recovered
 
 def LGL(y_true, y_pred, epsilon=0.001):
     pred_corrector = tf.abs(tf.clip_by_value(y_pred, -5, 5))
@@ -28,9 +57,10 @@ def LGL(y_true, y_pred, epsilon=0.001):
 def cosine_loss(y_true, y_pred):
     # print(y_true.shape, y_pred.shape)
     loss = cosine_loss_base(y_true, y_pred) + 1
-    weights = (0 * loss) + 1
-    weights = tf.cumsum(weights, axis=1, reverse=True)
-    loss = loss * weights
+    # print(y_pred.shape, y_true.shape, loss.shape)
+    # weights = tf.where(tf.logical_or(y_true != 0, y_pred != 0), 10.0, 1.0)
+
+    # loss = loss * weights
     return loss
 
 def embed_loss(y_true, y_pred):
@@ -67,8 +97,8 @@ def bleu_metric(y_true, y_pred):
 
 
 def sparse_loss(y_true, y_pred):
-    loss = sparse_loss_base(y_true, y_pred) #+ (perplexity(y_true, y_pred)/1000)
-    weights = (0.0 * loss) + 1.0
-    weights = tf.cumsum(weights, axis=1, reverse=True)
+    loss = sparse_loss_base(y_true, y_pred)
+    y_pred = tf.argmax(y_pred, axis=-1)
+    weights = tf.where(tf.logical_or(y_true != 0, y_pred != 0), 10.0, 1.0)
     loss = loss * weights
     return loss

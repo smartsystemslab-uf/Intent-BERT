@@ -217,8 +217,8 @@ class TextAsStringGenerator(keras.utils.Sequence):
 
                 # current_task_token = np.asarray_chkfinite(current_context['current_task_token'])
                 # current_meta_token = np.asarray_chkfinite(current_context['current_meta_token'])
-                next_task_token = np.asarray_chkfinite(current_context['next_task_token'])
-                next_meta_token = np.asarray_chkfinite(current_context['next_meta_token'])
+                next_task_token = np.asarray_chkfinite(current_context['next_task_token'])[np.newaxis, :]
+                next_meta_token = np.asarray_chkfinite(current_context['next_meta_token'])[np.newaxis, :]
             except ValueError:
                 print(ID)
                 sys.exit()
