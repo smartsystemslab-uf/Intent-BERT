@@ -7,3 +7,6 @@
 [submodule "ultralytics"]
 	path = ultralytics
 	url = https://github.com/ultralytics/ultralytics
+[submodule "Research"]
+	path = GPT_Results
+	url = https://github.com/jacevedo0326/Research.git
