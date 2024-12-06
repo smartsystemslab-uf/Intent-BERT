@@ -28,3 +28,5 @@ To train on the prepare data, simply run `train.py [PATH_TO_TRAINING_DATA]` from
 
 ## Evaluation
 To replicate our results, run `eval.py [PATH_TO_TESTING_DATA]` from the root directory of this repo. By default, [PATH_TO_TESTING_DATA] is Prepared_Data\testing.
+
+To replicate our results comparing GPT to Intent-BERT please see the GPT_Results folder
